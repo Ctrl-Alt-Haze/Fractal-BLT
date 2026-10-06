@@ -53,17 +53,12 @@ public class ModelHarvester
             while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
                 await fs.WriteAsync(buffer, 0, bytesRead);
-                if (fs.Position >= 10 * 1024 * 1024) 
-                {
-                    Console.WriteLine("[Model Harvester] Capping download at 10MB for rapid architecture testing.");
-                    break;
-                }
             }
         }
         else
         {
-            Console.WriteLine($"[Model Harvester] HF returned {response.StatusCode}. Simulating 1MB dummy raw file for architecture demo.");
-            await fs.WriteAsync(new byte[1024 * 1024], 0, 1024 * 1024);
+            Console.WriteLine($"[Model Harvester] HF returned {response.StatusCode}. Harvest failed.");
+            throw new Exception($"Failed to download model {repoId}");
         }
 
         Console.WriteLine($"[Model Harvester] Harvest complete: {targetFile}");
@@ -91,15 +86,27 @@ public class ModelHarvester
                 // Normalize, clip weights to ternary domain {-1, 0, 1}, and bit-pack 4 ternary weights per byte (2 bits each) into native .safetensors structure.
                 
                 long rawLength = new FileInfo(rawSafetensorsPath).Length;
-                long packedByteCount = rawLength / 8; // 16-bit to 2-bit (4 per byte) = 1/8th size. Note: 10MB demo -> 1.25MB
+                long packedByteCount = rawLength / 8; // 16-bit to 2-bit (4 per byte) = 1/8th size.
                 
                 byte[] packedTensors = new byte[packedByteCount];
                 fixed (byte* pTensors = packedTensors)
                 {
-                    // Simulated zero-allocation packing: each byte holds 4 ternary weights
+                    // True zero-allocation Bit-Packing:
+                    // Quantize the float16s and bit-shift them into bytes.
+                    ushort* raw16 = (ushort*)ptr;
                     for (long i = 0; i < packedByteCount; i++)
                     {
-                        pTensors[i] = 42; 
+                        // Taking 4 FP16 values (8 bytes) -> squashing to 1 byte
+                        long baseIdx = i * 4;
+                        byte packed = 0;
+                        for (int j = 0; j < 4; j++)
+                        {
+                            // Very rough absolute-mean quantization stub
+                            ushort val = raw16[baseIdx + j];
+                            byte ternary = (byte)((val > 10000) ? 2 : (val > 100 ? 1 : 0)); // 0, 1, 2
+                            packed |= (byte)(ternary << (j * 2));
+                        }
+                        pTensors[i] = packed; 
                     }
                 }
 

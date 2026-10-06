@@ -74,18 +74,27 @@ public class SwarmInterop : IDisposable
 
                     if (isPrompt) // Prompt
                     {
-                        // Read directly into the unmanaged SwarmBus PromptBuffer (assuming 8-byte offset for PromptBuffer)
-                        // In a full implementation, we'd cast _busPtr to SwarmBus* and use its span
-                        unsafe
+                        byte[] payloadBuffer = System.Buffers.ArrayPool<byte>.Shared.Rent(payloadLength);
+                        try
                         {
-                            byte* busBase = (byte*)_busPtr;
-                            byte* promptDest = busBase + 8; // simplified offset for ActiveAgentId + TaskState
+                            await _pipeServer.ReadAsync(payloadBuffer, 0, payloadLength, cancellationToken);
+                            
+                            unsafe
+                            {
+                                byte* busBase = (byte*)_busPtr;
+                                byte* promptDest = busBase + 8; // simplified offset for ActiveAgentId + TaskState
 
-                            Span<byte> destSpan = new Span<byte>(promptDest, payloadLength);
-                            await _pipeServer.ReadAsync(destSpan, cancellationToken);
+                                fixed (byte* pPayload = payloadBuffer)
+                                {
+                                    Buffer.MemoryCopy(pPayload, promptDest, payloadLength, payloadLength);
+                                }
+                            }
+                            Console.WriteLine($"[Hermes Bridge] Ingested Prompt ({payloadLength} bytes) directly to SwarmBus.");
                         }
-                        
-                        Console.WriteLine($"[Hermes Bridge] Ingested Prompt ({payloadLength} bytes) directly to SwarmBus.");
+                        finally
+                        {
+                            System.Buffers.ArrayPool<byte>.Shared.Return(payloadBuffer);
+                        }
                     }
                     else
                     {

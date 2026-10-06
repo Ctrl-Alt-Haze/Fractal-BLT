@@ -32,39 +32,71 @@ public static class InteractiveModes
                 _ => RenderStandardChatAsync(_cts.Token)
             };
 
-            // Wait for hotkey to switch modes
-            await Task.Run(() =>
+            // We don't await the render task, we let it run in background and manage input here
+            var _ = renderTask;
+            
+            string currentInput = "";
+            while (!_cts.Token.IsCancellationRequested)
             {
-                while (true)
+                if (Console.KeyAvailable)
                 {
-                    if (Console.KeyAvailable)
+                    var keyInfo = Console.ReadKey(intercept: true);
+                    var key = keyInfo.Key;
+                    
+                    if (key == ConsoleKey.F1)
                     {
-                        var key = Console.ReadKey(intercept: true).Key;
-                        if (key == ConsoleKey.F1)
+                        SwitchMode(UIMode.StandardRAG);
+                    }
+                    else if (key == ConsoleKey.F2)
+                    {
+                        SwitchMode(UIMode.NativeJITForge);
+                    }
+                    else if (key == ConsoleKey.F3)
+                    {
+                        SwitchMode(UIMode.HiveMindSwarm);
+                    }
+                    else if (key == ConsoleKey.Escape)
+                    {
+                        Environment.Exit(0);
+                    }
+                    else if (CurrentMode == UIMode.StandardRAG)
+                    {
+                        if (key == ConsoleKey.Enter)
                         {
-                            SwitchMode(UIMode.StandardRAG);
-                            break;
+                            Console.WriteLine();
+                            if (!string.IsNullOrWhiteSpace(currentInput))
+                            {
+                                string prompt = currentInput;
+                                AnsiConsole.MarkupLine($"[grey]Ingested >> {prompt}[/]");
+                                currentInput = "";
+                                
+                                // Fire and forget the response simulation
+                                _ = Task.Run(async () => {
+                                    await StreamRealHiveMindResponseAsync(prompt);
+                                    AnsiConsole.Markup("\n[green]You:[/] ");
+                                });
+                            }
+                            else 
+                            {
+                                AnsiConsole.Markup("\n[green]You:[/] ");
+                            }
                         }
-                        else if (key == ConsoleKey.F2)
+                        else if (key == ConsoleKey.Backspace && currentInput.Length > 0)
                         {
-                            SwitchMode(UIMode.NativeJITForge);
-                            break;
+                            currentInput = currentInput.Substring(0, currentInput.Length - 1);
+                            Console.Write("\b \b");
                         }
-                        else if (key == ConsoleKey.F3)
+                        else if (!char.IsControl(keyInfo.KeyChar))
                         {
-                            SwitchMode(UIMode.HiveMindSwarm);
-                            break;
-                        }
-                        else if (key == ConsoleKey.Escape)
-                        {
-                            Environment.Exit(0);
+                            currentInput += keyInfo.KeyChar;
+                            Console.Write(keyInfo.KeyChar);
                         }
                     }
-                    Thread.Sleep(50);
                 }
-            });
+                await Task.Delay(20);
+            }
 
-            await renderTask; // wait for cancellation to finish
+            try { await renderTask; } catch (TaskCanceledException) { }
         }
     }
 
@@ -84,12 +116,17 @@ public static class InteractiveModes
     private static async Task RenderStandardChatAsync(CancellationToken token)
     {
         AnsiConsole.MarkupLine("[bold aqua]Standard RAG Chat[/]");
-        AnsiConsole.MarkupLine("[grey]Listening to localhost:5000...[/]");
+        AnsiConsole.MarkupLine("[grey]Type your prompt below. Connecting to SwarmBus...[/]");
+        AnsiConsole.Markup("[green]You:[/] ");
         
-        while (!token.IsCancellationRequested)
+        try 
         {
-            await Task.Delay(100, token);
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(100, token);
+            }
         }
+        catch (TaskCanceledException) {}
     }
 
     private static async Task RenderJITForgeAsync(CancellationToken token)
@@ -98,14 +135,73 @@ public static class InteractiveModes
         AnsiConsole.MarkupLine("[grey]Monitoring tool compilation on unmanaged streams...[/]");
 
         int tick = 0;
-        while (!token.IsCancellationRequested)
+        try
         {
-            if (tick % 10 == 0)
+            while (!token.IsCancellationRequested)
             {
-                AnsiConsole.MarkupLine($"[[{DateTime.Now:HH:mm:ss}]] [green]Forge Standby...[/]");
+                if (tick % 10 == 0)
+                {
+                    AnsiConsole.MarkupLine($"[[{DateTime.Now:HH:mm:ss}]] [green]Forge Standby...[/]");
+                }
+                await Task.Delay(100, token);
+                tick++;
             }
-            await Task.Delay(100, token);
-            tick++;
+        }
+        catch (TaskCanceledException) {}
+    }
+
+    private static async Task StreamRealHiveMindResponseAsync(string prompt)
+    {
+        AnsiConsole.Markup("[bold magenta]Hive-Mind:[/] ");
+        try
+        {
+            using var client = new HttpClient();
+            client.Timeout = TimeSpan.FromMinutes(5);
+            var requestBody = new 
+            { 
+                model = "qwen3_30b_a3b", 
+                messages = new[] { new { role = "user", content = prompt } },
+                stream = true 
+            };
+            
+            var content = new StringContent(System.Text.Json.JsonSerializer.Serialize(requestBody), System.Text.Encoding.UTF8, "application/json");
+            
+            var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5000/v1/chat/completions");
+            request.Content = content;
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            using var stream = await response.Content.ReadAsStreamAsync();
+            using var reader = new System.IO.StreamReader(stream);
+
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                
+                if (line.StartsWith("data: "))
+                {
+                    string data = line.Substring(6);
+                    if (data == "[DONE]") break;
+                    
+                    try 
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(data);
+                        var delta = doc.RootElement.GetProperty("choices")[0].GetProperty("delta");
+                        if (delta.TryGetProperty("content", out var contentProp))
+                        {
+                            Console.Write(contentProp.GetString());
+                        }
+                    }
+                    catch { /* ignore parse errors for raw stream drops */ }
+                }
+            }
+            Console.WriteLine();
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Connection Error: Is FractalServe running on localhost:5000? ({ex.Message})[/]");
         }
     }
 }

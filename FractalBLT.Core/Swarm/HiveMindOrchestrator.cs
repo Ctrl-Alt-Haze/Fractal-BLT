@@ -47,6 +47,8 @@ public class HiveMindOrchestrator : IDisposable
         }
     }
 
+    public IntPtr GetSwarmBusPointer() => _busPtr;
+
     /// <summary>
     /// Executes the autonomous Multi-Agent loop.
     /// Intercepts prompt -> Debates -> Writes Code -> Compiles -> Verifies -> Streams.
