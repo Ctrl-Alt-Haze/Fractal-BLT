@@ -39,6 +39,8 @@ public static partial class CudaNative
     public static void StreamCreate(out IntPtr phStream, uint flags) => Check(cuStreamCreate(out phStream, flags));
     public static void StreamDestroy(IntPtr hStream) => Check(cuStreamDestroy(hStream));
     public static void CtxDestroy(IntPtr ctx) => Check(cuCtxDestroy(ctx));
+    public static void CtxPushCurrent(IntPtr ctx) => Check(cuCtxPushCurrent(ctx));
+    public static void CtxPopCurrent(out IntPtr ctx) => Check(cuCtxPopCurrent(out ctx));
     public static void MemHostRegister(IntPtr p, nuint bytesize, uint Flags) => Check(cuMemHostRegister(p, bytesize, Flags));
     public static void MemHostUnregister(IntPtr p) => Check(cuMemHostUnregister(p));
     public static void MemAlloc(out IntPtr dptr, nuint bytesize) => Check(cuMemAlloc(out dptr, bytesize));
@@ -75,7 +77,18 @@ public static partial class CudaNative
     public static partial CUresult cuCtxDestroy(IntPtr ctx);
 
     [LibraryImport(CudaLib)]
+    public static partial CUresult cuCtxPushCurrent(IntPtr ctx);
+
+    [LibraryImport(CudaLib)]
+    public static partial CUresult cuCtxPopCurrent(out IntPtr ctx);
+
+    [LibraryImport(CudaLib)]
     public static partial CUresult cuMemcpyHtoDAsync(nint dstDevice, nint srcHost, nuint byteCount, nint hStream);
+
+    [LibraryImport(CudaLib)]
+    public static partial CUresult cuMemcpyHtoD(nint dstDevice, nint srcHost, nuint byteCount);
+
+    public static void MemcpyHtoD(IntPtr dstDevice, IntPtr srcHost, nuint byteCount) => Check(cuMemcpyHtoD(dstDevice, srcHost, byteCount));
 
     [LibraryImport(CudaLib)]
     public static partial CUresult cuMemcpyDtoHAsync(nint dstHost, nint srcDevice, nuint byteCount, nint hStream);

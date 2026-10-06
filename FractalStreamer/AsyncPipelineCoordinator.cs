@@ -2,8 +2,9 @@ using System;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using FractalStreamer;
+using FractalBridge;
 
-namespace FractalBridge;
+namespace FractalStreamer;
 
 /// <summary>
 /// Decouples NVMe disk reads and GPU memory copies using System.Threading.Channels.

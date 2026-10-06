@@ -15,5 +15,6 @@
     <ProjectReference Include="..\FractalGnnRouter\FractalGnnRouter.csproj" />
     <ProjectReference Include="..\FractalBridge\FractalBridge.csproj" />
     <ProjectReference Include="..\FractalStreamer\FractalStreamer.csproj" />
+    <ProjectReference Include="..\FractalBLT.Core\FractalBLT.Core.csproj" />
   </ItemGroup>
 </Project>

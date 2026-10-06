@@ -9,4 +9,7 @@
     <StripSymbols>true</StripSymbols>
     <EventSourceSupport>false</EventSourceSupport>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FractalBridge\FractalBridge.csproj" />
+  </ItemGroup>
 </Project>

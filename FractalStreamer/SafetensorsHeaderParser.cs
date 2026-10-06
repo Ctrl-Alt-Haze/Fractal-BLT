@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Collections.Generic;
 
 namespace FractalStreamer;
 
@@ -9,6 +10,57 @@ namespace FractalStreamer;
 /// </summary>
 public static class SafetensorsHeaderParser
 {
+    public static bool TryResolveTensor(string path, string tensorName, out string resolvedFilePath, out long offset, out long length)
+    {
+        resolvedFilePath = path;
+        offset = 0;
+        length = 0;
+
+        if (Directory.Exists(path))
+        {
+            string indexPath = Path.Combine(path, "model.safetensors.index.json");
+            if (File.Exists(indexPath))
+            {
+                try
+                {
+                    string json = File.ReadAllText(indexPath);
+                    using JsonDocument doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("weight_map", out JsonElement weightMap))
+                    {
+                        if (weightMap.TryGetProperty(tensorName, out JsonElement fileElement))
+                        {
+                            string fileName = fileElement.GetString() ?? "";
+                            resolvedFilePath = Path.Combine(path, fileName);
+                            return TryGetTensorOffsets(resolvedFilePath, tensorName, out offset, out length);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fallback to scanning if index fails
+                }
+            }
+
+            // Fallback: scan all files
+            foreach (var f in Directory.GetFiles(path, "*.safetensors"))
+            {
+                if (TryGetTensorOffsets(f, tensorName, out offset, out length))
+                {
+                    resolvedFilePath = f;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if (File.Exists(path))
+        {
+            return TryGetTensorOffsets(path, tensorName, out offset, out length);
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Parses the safetensors header to find the byte offset and length for a specific tensor name.
     /// This avoids allocating objects or strings, using Utf8JsonReader on a stack or unmanaged buffer.
@@ -20,7 +72,6 @@ public static class SafetensorsHeaderParser
 
         using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         
-        // Safetensors format: First 8 bytes are an unsigned 64-bit integer (little endian) specifying the header size.
         Span<byte> lengthBuffer = stackalloc byte[8];
         if (fs.Read(lengthBuffer) != 8)
             throw new SafeTensorsParseException("File is too small to contain a SafeTensors length prefix.");
@@ -29,14 +80,12 @@ public static class SafetensorsHeaderParser
         if (headerLength <= 0 || headerLength > fs.Length - 8) 
             throw new SafeTensorsParseException($"Invalid SafeTensors header length: {headerLength}. File may be corrupted or truncated.");
 
-        // Allocate a buffer for the header.
         byte[] headerBytes = new byte[headerLength];
         if (fs.Read(headerBytes) != headerLength)
             throw new SafeTensorsParseException("Failed to read the entire SafeTensors JSON header.");
 
         try
         {
-            // Parse JSON using Utf8JsonReader
             var reader = new Utf8JsonReader(headerBytes);
 
             while (reader.Read())
@@ -45,8 +94,7 @@ public static class SafetensorsHeaderParser
                 {
                     if (reader.ValueTextEquals(tensorName))
                     {
-                        // Found the tensor, the value should be an object containing "data_offsets"
-                        reader.Read(); // move to StartObject
+                        reader.Read(); 
                         if (reader.TokenType != JsonTokenType.StartObject)
                             continue;
 
@@ -54,11 +102,10 @@ public static class SafetensorsHeaderParser
                         {
                             if (reader.TokenType == JsonTokenType.PropertyName && reader.ValueTextEquals("data_offsets"))
                             {
-                                // "data_offsets": [START, END]
-                                reader.Read(); // move to StartArray
-                                reader.Read(); // move to START number
+                                reader.Read(); 
+                                reader.Read(); 
                                 long startOffset = reader.GetInt64();
-                                reader.Read(); // move to END number
+                                reader.Read(); 
                                 long endOffset = reader.GetInt64();
 
                                 offset = 8 + headerLength + startOffset;
@@ -76,17 +123,26 @@ public static class SafetensorsHeaderParser
             throw new SafeTensorsParseException("Failed to parse SafeTensors JSON header.", ex);
         }
 
-        throw new SafeTensorsParseException($"Tensor '{tensorName}' not found in the safetensors header.");
+        return false; // Returns false instead of throwing if tensor is not in this specific file
     }
 
     /// <summary>
     /// Parses the safetensors header to retrieve all tensor names.
     /// </summary>
-    public static System.Collections.Generic.List<string> GetAllTensorNames(string filePath)
+    public static List<string> GetAllTensorNames(string path)
     {
-        var tensorNames = new System.Collections.Generic.List<string>();
+        var tensorNames = new List<string>();
 
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (Directory.Exists(path))
+        {
+            foreach (var f in Directory.GetFiles(path, "*.safetensors"))
+            {
+                tensorNames.AddRange(GetAllTensorNames(f));
+            }
+            return tensorNames;
+        }
+
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         
         Span<byte> lengthBuffer = stackalloc byte[8];
         if (fs.Read(lengthBuffer) != 8)
@@ -103,8 +159,6 @@ public static class SafetensorsHeaderParser
         try
         {
             var reader = new Utf8JsonReader(headerBytes);
-            // Safetensors header is a flat JSON object where keys are tensor names 
-            // (except for a special "__metadata__" key)
             if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
                 throw new SafeTensorsParseException("Expected a JSON object at the root of the header.");
 
@@ -113,14 +167,14 @@ public static class SafetensorsHeaderParser
                 if (reader.TokenType == JsonTokenType.PropertyName)
                 {
                     string propName = reader.GetString() ?? string.Empty;
-                    reader.Read(); // move to value
+                    reader.Read(); 
                     
                     if (propName != "__metadata__" && reader.TokenType == JsonTokenType.StartObject)
                     {
                         tensorNames.Add(propName);
                     }
                     
-                    reader.Skip(); // skip the value (object or string)
+                    reader.Skip(); 
                 }
             }
         }
