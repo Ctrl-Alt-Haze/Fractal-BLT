@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>Opure.Hermes.SDK</PackageId>
+    <Version>1.0.0-rc1</Version>
+    <Authors>Opure Open Source Community</Authors>
+    <Description>Developer-friendly C# wrapper for submitting prompts and context injections to the Fractal-BLT Sovereign Swarm.</Description>
+  </PropertyGroup>
+
+</Project>
