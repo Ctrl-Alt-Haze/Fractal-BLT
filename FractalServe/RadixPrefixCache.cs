@@ -54,7 +54,7 @@ public class RadixPrefixCache
         while (matchedCount < promptTokens.Length)
         {
             int nextToken = promptTokens[matchedCount];
-            if (current.Children.TryGetValue(nextToken, out RadixNode child))
+            if (current.Children.TryGetValue(nextToken, out RadixNode? child))
             {
                 // Verify the full sequence in the child node matches the prompt
                 int matchLength = 0;

@@ -65,7 +65,7 @@ public class ModelSwapRouter : IDisposable
 
         Console.WriteLine($"[GPUDirect Router] Initiating NVMe-to-VRAM DMA blast for {safetensorsPath}...");
 
-        if (!_activeReaders.TryGetValue(safetensorsPath, out CuFileReader reader))
+        if (!_activeReaders.TryGetValue(safetensorsPath, out CuFileReader? reader))
         {
             reader = new CuFileReader(safetensorsPath);
             _activeReaders[safetensorsPath] = reader;

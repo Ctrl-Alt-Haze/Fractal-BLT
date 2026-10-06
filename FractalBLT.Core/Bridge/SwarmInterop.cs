@@ -55,7 +55,13 @@ public class SwarmInterop : IDisposable
             {
                 int packetSize = Marshal.SizeOf<HermesPacket>();
                 byte[] headerBuffer = new byte[packetSize];
-                int bytesRead = await _pipeServer.ReadAsync(headerBuffer, 0, headerBuffer.Length, cancellationToken);
+                int bytesRead = 0;
+                while (bytesRead < packetSize)
+                {
+                    int r = await _pipeServer.ReadAsync(headerBuffer, bytesRead, packetSize - bytesRead, cancellationToken);
+                    if (r == 0) break;
+                    bytesRead += r;
+                }
                 
                 if (bytesRead == packetSize)
                 {
@@ -77,7 +83,13 @@ public class SwarmInterop : IDisposable
                         byte[] payloadBuffer = System.Buffers.ArrayPool<byte>.Shared.Rent(payloadLength);
                         try
                         {
-                            await _pipeServer.ReadAsync(payloadBuffer, 0, payloadLength, cancellationToken);
+                            int payloadRead = 0;
+                            while (payloadRead < payloadLength)
+                            {
+                                int r = await _pipeServer.ReadAsync(payloadBuffer, payloadRead, payloadLength - payloadRead, cancellationToken);
+                                if (r == 0) break;
+                                payloadRead += r;
+                            }
                             
                             unsafe
                             {
@@ -100,7 +112,13 @@ public class SwarmInterop : IDisposable
                     {
                         // Drain invalid payload
                         byte[] drain = new byte[payloadLength];
-                        await _pipeServer.ReadAsync(drain, 0, drain.Length, cancellationToken);
+                        int drainRead = 0;
+                        while (drainRead < drain.Length)
+                        {
+                            int r = await _pipeServer.ReadAsync(drain, drainRead, drain.Length - drainRead, cancellationToken);
+                            if (r == 0) break;
+                            drainRead += r;
+                        }
                     }
 
                     // Acknowledge via unmanaged write

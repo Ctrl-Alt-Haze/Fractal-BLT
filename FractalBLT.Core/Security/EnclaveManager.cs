@@ -97,7 +97,7 @@ public unsafe class EnclaveManager : IDisposable
         info.BasicLimitInformation.ActiveProcessLimit = 1;
         info.ProcessMemoryLimit = 512 * 1024 * 1024; // 512 MB max for dynamically generated tool executions
         
-        SetInformationJobObject(_jobHandle, 9, ref info, (uint)Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)));
+        SetInformationJobObject(_jobHandle, 9, ref info, (uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>());
     }
 
     private void InitializeLedger()
