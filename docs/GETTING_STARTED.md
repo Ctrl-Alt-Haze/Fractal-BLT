@@ -3,11 +3,22 @@ layout: default
 title: Getting Started
 ---
 
-# 🚀 Getting Started with Fractal-BLT
+# Getting Started
 
-Fractal-BLT is a massive NativeAOT C# leap. It configures itself effortlessly.
+The path that generates text is the CPU CLI, not the PowerShell bootstrapper:
 
-## 1. 1-Click Deployment (OZTAE Bootstrapper)
+```bash
+bash scripts/download-qwen25-0.5b.sh models/Qwen2.5-0.5B-Instruct
+dotnet run --project FractalInfer.Cli -c Release -- generate \
+  --model models/Qwen2.5-0.5B-Instruct \
+  --prompt "The capital of France is" \
+  --max-new-tokens 32 \
+  --temperature 0
+```
+
+The bootstrapper, job-object sandbox, and "traffic cop" download below are experimental scripts. They do not produce the Qwen2 forward pass.
+
+## 1. Experimental Windows bootstrapper
 Run the Windows PowerShell bootstrapper from the project root:
 ```powershell
 ./Installer/Forge-Fractal.ps1

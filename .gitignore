@@ -44,3 +44,6 @@ dummy_expert.safetensors
 *.obj
 *.lib
 *.a
+
+# Downloaded Qwen weights and tokenizer (scripts/download-qwen25-0.5b.sh)
+/models/

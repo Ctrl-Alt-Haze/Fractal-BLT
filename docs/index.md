@@ -3,19 +3,14 @@ layout: default
 title: Fractal-BLT Documentation
 ---
 
-# Fractal-BLT: Sovereign Apex Architecture
+# Fractal-BLT
 
-Welcome to the official technical documentation for the open-source **Fractal-BLT** NativeAOT engine.
+The working inference path is a float32 CPU Qwen2.5-0.5B-Instruct forward pass (`FractalInfer`). Older pages in this site describe MoE streaming, a hive of agents, and microsecond retrieval that the code does not do. Read [the README](https://github.com/Ctrl-Alt-Haze/Fractal-BLT/blob/master/README.md) and [Architecture](ARCHITECTURE.md) for the current split between real code and experimental stubs.
 
-## Core Pillars
-1. **The Sovereign RAG Engine (ZeroAlloc HNSW):**
-   Native C# `Span<T>` and `float*` pointers coupled with AVX2 SIMD intrinsics enable 2.4µs latency RAG lookups, outperforming traditional Python frameworks.
-2. **Gemini Thought-Matrix TUI:**
-   The cyber-brutalist Spectre.Console live terminal orchestrates multiple concurrent AI agents without dropping a single inference frame.
-3. **Opure OZTAE Security:**
-   The **Opure Zero-Trust Agent Enclave (OZTAE)** wraps dynamically generated NativeAOT code inside air-gapped Windows Job Objects, cryptographically auditing every memory allocation via unmanaged SQLite.
-4. **Hermes SDK Integration Guide:**
-   The `Opure.Hermes.SDK` NuGet package enables `.NET` developers to interface seamlessly with the SwarmBus over Named Pipes, streaming unmanaged memory directly across processes.
+## What is actually in the tree
+1. **Qwen2 CPU runtime.** Safetensors in, BPE tokenization, RMSNorm, RoPE, grouped-query attention, SwiGLU, greedy or temperature sampling.
+2. **Parsers and P/Invoke.** Safetensors headers, unbuffered file opens, and CUDA Driver API declarations. They are not a full GPU model.
+3. **Experimental stubs.** The HTTP chat route, HNSW graph, 1.58-bit squasher, TMA router, hive orchestrator, and speculative draft are labeled as such. The chat route does not return model text.
 
 ## Guides
 - [Getting Started](getting_started.md)

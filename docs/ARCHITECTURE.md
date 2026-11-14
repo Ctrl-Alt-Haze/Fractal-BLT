@@ -1,61 +1,48 @@
-# Architectural Manifesto
+# Architecture
 
-**Fractal-BLT** is a bare-metal systems reimagining of local artificial intelligence, heavily optimized for zero-allocation memory architectures, direct PCIe memory-mapped streams, and unmanaged hardware execution.
+This note describes the code in the repository. It is not a claim that every subsystem below runs a model.
 
-## The Core Problem
+## CPU Qwen2 path
 
-Traditional AI runtimes rely heavily on bloated, managed software stacks:
-1. **Python / PyTorch:** Heavy GC pauses, Global Interpreter Lock (GIL) contention, and expensive object allocations per tensor.
-2. **Tokenizer Bottlenecks:** Standard BPE tokenizers perform costly heap allocations and string manipulations for every single input chunk.
-3. **The VRAM Ceiling:** Loading an entire 27B parameter Mixture-of-Experts (MoE) model into VRAM requires a massive hardware investment, making it impossible to run locally on consumer GPUs.
+`FractalInfer` loads one safetensors file and runs a Qwen2 decoder in float32.
 
-## The Fractal-BLT Solution
+1. `SafetensorsFile` reads the 8-byte header length, the JSON header, and the raw little-endian payload. BF16 and FP16 values are widened to float32. FP32 is copied. The compute dtype stays float32.
+2. `Qwen2Config` accepts `model_type: qwen2`, SiLU, and `use_sliding_window: false`. Qwen2.5-0.5B-Instruct matches that. The Qwen3-MoE config under `Models/qwen3_30b_a3b` does not, and the loader rejects it.
+3. `BpeTokenizer` reads `tokenizer.json`: NFC when the file says so, longest-match added tokens, the Qwen pretokenizer regex, GPT-2 byte-to-unicode, then BPE merges in rank order. `ApplyQwen25Instruct` covers the no-tools chat template (default system prompt, one user turn, generation prefix). It is not a Jinja interpreter.
+4. `Qwen2Model.Forward` embeds the new tokens, then for each layer: RMSNorm, Q/K/V projections (Q, K, and V have bias; the output projection and the MLP do not), NeoX RoPE (`inv_freq` duplicated across the two halves, `rope_theta` from config), writes K and V into a cache, runs causal grouped-query attention with scale `1/sqrt(head_dim)`, adds the residual, then SwiGLU (`silu(gate) * up`, then down), then the second residual. A final RMSNorm and the LM head produce logits for the last token only. If `lm_head.weight` is absent and `tie_word_embeddings` is true, the embedding matrix is the LM head.
+5. Greedy decoding is the first maximum (ties keep the lower index, matching `torch.argmax`). Temperature sampling is a multinomial draw from `softmax(logits / temperature)`.
 
-Fractal-BLT was engineered from the ground up in **.NET 10 NativeAOT** to strip out the runtime, the garbage collector, and all intermediate layers.
+Matrix multiplies are row-wise dot products of a PyTorch linear weight `[out, in]` with each token. Rows run in parallel. Each dot is sequential, using AVX-512 FMA, AVX2, or a scalar tail. That keeps the result stable across thread counts on one CPU. It is not a GPU kernel. NativeAOT evaluates `IsSupported` when publishing. The CLI defaults to the build CPU (`IlcInstructionSet=native`). A baseline publish keeps SSE only and drops the AVX loops.
 
-### 1. Shannon Entropy Byte Patchification
+The KV cache is sized to the context passed to `Load` (the CLI default is 2048). One `Qwen2Model` is not safe for concurrent `Forward` calls. Activations are reused across steps; token encoding still allocates.
 
-Instead of using a traditional BPE tokenizer with large vocabulary lookup dictionaries, Fractal-BLT operates on **raw UTF-8 byte streams**. 
-We use a high-speed, sliding-window **Shannon Entropy Scorer** ($H = - \sum p_i \log_2 p_i$) entirely vectorized with **AVX2 / Vector256**.
-- **Zero Allocations:** The frequency histogram is calculated entirely using `stackalloc int[256]`.
-- **Dynamic Boundaries:** Patches are dynamically sliced at points of highest entropy without ever creating a managed `string` or `byte[]` array on the heap.
+## Pieces that exist and do what their names say
 
-### 2. Unmanaged Graph Convolution Network (GCN) Routing
+- `FractalStreamer.SafetensorsHeaderParser` resolves a tensor name to a file, offset, and length. It does not decode dtypes. `FractalInfer.SafetensorsFile` does.
+- `UnbufferedFile.OpenUnbuffered` is a direct open (`O_DIRECT` on Linux, `FILE_FLAG_NO_BUFFERING` on Windows).
+- `FractalBridge.CudaNative` is a partial CUDA Driver API surface (`cuInit`, contexts, streams, `cuMemAlloc`, async memcpy, module load, `cuLaunchKernel`) plus a resolver that maps the import onto `libcuda.so` on Linux. Calling it requires a driver. Nothing in `FractalInfer` calls it.
+- `ShannonEntropyScorer` computes a 256-bin Shannon entropy with a stack histogram.
 
-Fractal-BLT implements Mixture-of-Experts (MoE) routing using an unmanaged Graph Convolution Network.
-- We construct an $N \times N$ RBF similarity matrix representing the expert landscape.
-- Graph message passing is computed using C# 12 `[InlineArray(64)]` structures, operating entirely on the thread stack.
-- The GCN identifies the optimal Expert ID for the incoming byte patch with sub-millisecond latency.
+## Experimental code
 
-### 3. NVMe-to-VRAM DMA (Zero-Copy Streaming)
+These types are still compiled. They are not the inference path.
 
-To bypass the VRAM ceiling, Fractal-BLT leaves the model weights on Gen4/Gen5 NVMe storage.
-- Using `System.IO.MemoryMappedFiles`, we bypass the OS page cache entirely.
-- We retrieve a raw memory pointer (`mappedWeightsPtr`) to the exact byte offset of the required expert in the `.safetensors` file.
-- The `FractalBridge` issues a P/Invoke to the CUDA Driver API (`cuMemcpyHtoDAsync`) to perform a **Direct Memory Access (DMA)** transfer.
-- **The Result:** The model weights travel directly from the NVMe drive, across the PCIe bus, and into the GPU VRAM, entirely bypassing the host CPU RAM and managed heap.
+- `LlamaTransformer` normalizes and can rotate pairs. `ComputeQKV` and `SelfAttention` return immediately, so the residual stream never receives attention or an MLP, and the method never writes LM-head logits.
+- `FractalServe` builds a Kestrel app, patches bytes with the entropy scorer, and can launch a PTX GEMV when CUDA is present. The strings it used to return were a fixed list of about fifty words indexed by a hash. The route now returns HTTP 501. `FRACTAL_EXPERIMENTAL_STUB_CHAT=1` restores that list and prefixes it so it cannot be read as a completion. Process startup still calls `CudaNative.Init`.
+- `ModelHarvester.HarvestModelAsync` downloads a single URL. `SquashToTernary` packs raw 16-bit words with a threshold and then deletes the input file. It does not compute absolute-mean scales, and the output is not a safetensors file despite the extension.
+- `ModelSwapRouter` embeds a `cp.async.bulk.tensor` PTX string. `HotSwapToModel` copies a span of the file onto a device pointer. It does not parse experts or keep a KV cache warm.
+- `ZeroAllocHnswGraph.CosineSimilaritySIMD` is an AVX2 cosine. `AddVector` copies a vector and does not create edges. Search starts at node 0 and follows zeros.
+- `HiveMindOrchestrator` copies a prompt into an unmanaged struct and reports scripted stages separated by delays.
+- `SpeculativeDecoder` fills draft ids from an arithmetic sequence. `VerifyDraft` can argmax a provided logit buffer; nothing in the real Qwen2 path calls it.
+- `GnnRouter.ComputeRoutes` builds a tiny adjacency from patch length and entropy and writes an expert id. The registry it is given in the server is random.
 
-### 4. Raw PTX JIT Execution
+## Earlier claims that the code does not support
 
-Instead of relying on heavy tensor libraries, Fractal-BLT ships with raw PTX (Parallel Thread Execution) assembly strings.
-- We invoke `cuModuleLoadData` to JIT-compile the PTX kernels directly on the target GPU architecture.
-- The `SGEMV` (Single Precision General Matrix-Vector Multiplication) kernel utilizes shared memory padding to prevent memory bank conflicts and maximize streaming multiprocessor (SM) throughput.
+- There is no measured 2.4 µs retrieval, 64 GB/s TMA stream, 10 MB server, or zero-allocation tokenizer in the hot path.
+- Weights are not paged from NVMe into an attention or MoE forward.
+- There is no 1.58-bit model file that this runtime can execute.
+- There is no Near Content Model.
 
-### 5. Zero-Copy Kestrel SSE Streaming
+## Next
 
-The computed logits are fetched asynchronously from the GPU.
-- Fractal-BLT utilizes the ASP.NET Core Kestrel web server.
-- The `ChatCompletion` endpoint streams the output back to the client using **Server-Sent Events (SSE)**.
-- Data is written directly to the HTTP response stream using `PipeWriter`, ensuring that absolutely zero managed string allocations occur on the outbound path.
-
----
-
-## Memory Footprint Benchmark
-
-| Component | Architecture | Peak Memory Allocation |
-|---|---|---|
-| **API Server** | .NET 10 NativeAOT | ~10.06 MB |
-| **Tokenizer** | Stack-allocated AVX2 | 0 Bytes |
-| **GCN Router** | `[InlineArray(64)]` | 0 Bytes |
-| **Model Loader** | MemoryMappedFile | 0 Bytes (Host), Direct to VRAM |
-| **Response Stream**| Kestrel PipeWriter | 0 Bytes |
+The CPU path is the base for a CUDA port on an RTX 5070 Ti, a real ternary format, and MoE streaming. Sharding experiments for Qwen3-30B-A3B live on `local-wip/qwen3-moe-squasher` (`split_qwen3_moe.py`) and are not wired into `Qwen2Model`. A separate private C/Vulkan ternary engine is a later source of kernels, not a dependency of this tree.

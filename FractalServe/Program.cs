@@ -14,8 +14,8 @@ using FractalBLT.Core.RAG;
 namespace FractalServe;
 
 /// <summary>
-/// The primary Kestrel web host exposing the zero-allocation Fractal-BLT pipeline.
-/// Designed for NativeAOT compilation and lock-free async streaming.
+/// Experimental Kestrel host. The chat route does not run a language model.
+/// Real CPU generation is the fractal-infer CLI in FractalInfer.Cli.
 /// </summary>
 public class Program
 {
@@ -130,6 +130,22 @@ public class Program
 
         app.MapPost("/v1/chat/completions", async (HttpContext context, ChatCompletionRequest request) =>
         {
+            // The body below hashes a GEMV (or the prompt) into a fixed ~50 word list.
+            // It is not model output. Real generation is `fractal-infer generate`.
+            bool allowStub = string.Equals(
+                Environment.GetEnvironmentVariable("FRACTAL_EXPERIMENTAL_STUB_CHAT"),
+                "1",
+                StringComparison.Ordinal);
+            if (!allowStub)
+            {
+                var error = new ExperimentalStubResponse
+                {
+                    Error = "not_a_model",
+                    Message = "This endpoint does not run a language model. The previous implementation emitted a fixed word list. Use fractal-infer generate (Qwen2.5-0.5B-Instruct on CPU). Set FRACTAL_EXPERIMENTAL_STUB_CHAT=1 to run the labeled stub."
+                };
+                return Results.Json(error, FractalJsonContext.Default.ExperimentalStubResponse, statusCode: 501);
+            }
+
             string modelPath = app.Configuration["ModelPath"] ?? Environment.GetEnvironmentVariable("FRACTAL_MODEL") ?? "C:\\Fractal-BLT\\tiny-llama.safetensors";
             string inputContent = request.Messages != null && request.Messages.Count > 0 ? request.Messages[0].Content : "default";
 
@@ -350,6 +366,8 @@ public class Program
             {
                 outputMessage += " (Tensor offsets not found)";
             }
+
+            outputMessage = "[experimental-stub, not model output] " + outputMessage;
 
             // 5. Return Response
             if (request.Stream == true)

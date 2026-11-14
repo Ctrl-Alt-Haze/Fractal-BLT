@@ -5,10 +5,11 @@ using System.Runtime.CompilerServices;
 namespace FractalServe;
 
 /// <summary>
-/// Phase 18: Sovereign Llama Execution
-/// NativeAOT zero-allocation implementation of the Llama Transformer block.
-/// Integrates RoPE (Rotary Positional Embeddings), RMSNorm, Self-Attention, and SwiGLU MLP.
+/// Experimental stub. RMSNorm and a NeoX-incompatible RoPE helper exist.
+/// QKV, attention, the output projection, SwiGLU, and the LM head are not applied.
+/// The working decoder is FractalInfer.Qwen2Model.
 /// </summary>
+[ExperimentalStub("Empty QKV and attention. Residual, SwiGLU, and LM head are comments only.")]
 public unsafe class LlamaTransformer
 {
     private readonly int _hiddenSize;

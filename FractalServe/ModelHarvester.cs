@@ -10,6 +10,7 @@ namespace FractalServe;
 /// Automates the downloading of HuggingFace models and squashes them to 1.58-bit precision locally.
 /// Computes per-group scales, normalizes to {-1, 0, +1}, packs 4 values per byte, and exports to .safetensors.
 /// </summary>
+[ExperimentalStub("HTTP download is real. SquashToTernary is a threshold stub and deletes the source file.")]
 public class ModelHarvester
 {
     private readonly string _modelsDir;
