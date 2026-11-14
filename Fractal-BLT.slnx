@@ -2,6 +2,9 @@
   <Project Path="FractalBltEncoder/FractalBltEncoder.csproj" />
   <Project Path="FractalBridge/FractalBridge.csproj" />
   <Project Path="FractalGnnRouter/FractalGnnRouter.csproj" />
+  <Project Path="FractalInfer.Cli/FractalInfer.Cli.csproj" />
+  <Project Path="FractalInfer.Tests/FractalInfer.Tests.csproj" />
+  <Project Path="FractalInfer/FractalInfer.csproj" />
   <Project Path="FractalServe/FractalServe.csproj" />
   <Project Path="FractalStreamer.Tests/FractalStreamer.Tests.csproj" />
   <Project Path="FractalStreamer/FractalStreamer.csproj" />

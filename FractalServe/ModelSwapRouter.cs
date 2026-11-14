@@ -10,6 +10,7 @@ namespace FractalServe;
 /// Hot-swaps specialized 1.58-bit models instantly without dropping the PagedAttention KV cache.
 /// DMA blasts ternary weights directly from NVMe to VRAM over PCIe Gen4.
 /// </summary>
+[ExperimentalStub("TMA PTX is a string. HotSwap copies a byte range; it does not page experts for a forward pass.")]
 public class ModelSwapRouter : IDisposable
 {
     private readonly VramManager _vramManager;

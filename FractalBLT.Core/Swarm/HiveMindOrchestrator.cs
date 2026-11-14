@@ -7,9 +7,8 @@ using FractalBLT.Core.RAG;
 namespace FractalBLT.Core.Swarm;
 
 /// <summary>
-/// Phase 12: The Gemini Hive-Mind
-/// Autonomous Swarm Orchestrator coordinating 4 concurrent NativeAOT agents.
-/// Relies entirely on Span<T> and raw pointer structs for inter-agent communication.
+/// Experimental stub. Allocates an unmanaged bus and sleeps between scripted status strings.
+/// It does not run agents or a model.
 /// </summary>
 public class HiveMindOrchestrator : IDisposable
 {

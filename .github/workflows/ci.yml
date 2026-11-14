@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore
+        run: dotnet restore Fractal-BLT.slnx
+      - name: Build
+        run: dotnet build Fractal-BLT.slnx -c Release --no-restore
+      - name: Download Qwen2.5-0.5B-Instruct
+        run: bash scripts/download-qwen25-0.5b.sh models/Qwen2.5-0.5B-Instruct
+      - name: Install the Hugging Face reference (test only)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers safetensors
+      - name: Test
+        run: dotnet test Fractal-BLT.slnx -c Release --no-build --logger "console;verbosity=normal"
+        env:
+          FRACTAL_MODEL_DIR: models/Qwen2.5-0.5B-Instruct
+          FRACTAL_REQUIRE_HF_PARITY: "1"
+      - name: NativeAOT publish (linux-x64)
+        run: dotnet publish FractalInfer.Cli/FractalInfer.Cli.csproj -c Release -r linux-x64 --self-contained true /p:PublishAot=true /p:IlcInstructionSet=x86-64-v3 /p:TreatWarningsAsErrors=true
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Restore
+        run: dotnet restore Fractal-BLT.slnx
+      - name: Build
+        run: dotnet build Fractal-BLT.slnx -c Release --no-restore
+      - name: Download tokenizer (weights stay on the Linux job)
+        shell: pwsh
+        run: |
+          $dest = "models/Qwen2.5-0.5B-Instruct"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $base = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main"
+          foreach ($name in @("config.json","generation_config.json","tokenizer_config.json","tokenizer.json")) {
+            $out = Join-Path $dest $name
+            if (-not (Test-Path $out)) {
+              Invoke-WebRequest -Uri "$base/$name" -OutFile $out
+            }
+          }
+      - name: Test
+        run: dotnet test Fractal-BLT.slnx -c Release --no-build --logger "console;verbosity=normal"
+        env:
+          FRACTAL_MODEL_DIR: models/Qwen2.5-0.5B-Instruct
+      - name: NativeAOT publish (windows-x64)
+        run: dotnet publish FractalInfer.Cli/FractalInfer.Cli.csproj -c Release -r win-x64 --self-contained true /p:PublishAot=true /p:IlcInstructionSet=x86-64-v3 /p:TreatWarningsAsErrors=true

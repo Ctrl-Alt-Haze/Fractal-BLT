@@ -7,9 +7,8 @@ using System.Runtime.Intrinsics.X86;
 namespace FractalBLT.Core.RAG;
 
 /// <summary>
-/// Phase 9: Sovereign Local RAG
-/// Zero-allocation, SIMD-accelerated Hierarchical Navigable Small World (HNSW) graph.
-/// Operates entirely on unmanaged memory.
+/// Experimental. CosineSimilaritySIMD is a real AVX2 dot product.
+/// AddVector does not insert HNSW links, and Search walks an unbuilt graph from node 0.
 /// </summary>
 public unsafe class ZeroAllocHnswGraph : IDisposable
 {

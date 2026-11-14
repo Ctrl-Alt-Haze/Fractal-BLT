@@ -54,6 +54,16 @@ public struct ChatCompletionChunk
     public List<ChatCompletionChunkChoice> Choices { get; set; }
 }
 
+public struct ExperimentalStubResponse
+{
+    [JsonPropertyName("error")]
+    public string Error { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; }
+}
+
+[JsonSerializable(typeof(ExperimentalStubResponse))]
 [JsonSerializable(typeof(ChatCompletionRequest))]
 [JsonSerializable(typeof(ChatCompletionMessage))]
 [JsonSerializable(typeof(ChatCompletionChoice))]

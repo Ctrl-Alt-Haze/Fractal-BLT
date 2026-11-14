@@ -8,6 +8,7 @@ namespace FractalServe;
 /// Spins up a lightweight draft model pass to predict 4-6 tokens ahead.
 /// Overlaps compute with the primary 1.58-bit MoE verification pass to drastically multiply TPS.
 /// </summary>
+[ExperimentalStub("Draft tokens are a hash of the context length, not a draft model.")]
 public unsafe class SpeculativeDecoder
 {
     private readonly int _draftLookahead;
