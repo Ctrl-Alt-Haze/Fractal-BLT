@@ -1,207 +1,198 @@
 using System;
-using System.Threading;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 
 namespace FractalChat;
 
-public enum UIMode
+public class ChatMessage
 {
-    StandardRAG,
-    NativeJITForge,
-    HiveMindSwarm
+    public string role { get; set; } = "";
+    public string content { get; set; } = "";
 }
 
 public static class InteractiveModes
 {
-    public static UIMode CurrentMode { get; private set; } = UIMode.StandardRAG;
-    private static CancellationTokenSource _cts = new CancellationTokenSource();
+    private static List<ChatMessage> _messages = new();
+
+    private static string FormatMarkdown(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+
+        // Scrub any stray raw model artifacts
+        raw = raw.Replace("<|im_end|>", "")
+                 .Replace("<|im_start|>", "")
+                 .Replace("<|repo_name|>", "")
+                 .Replace("<|endoftext|>", "");
+
+        var escaped = Markup.Escape(raw);
+        bool inCode = false;
+        var lines = escaped.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string trimmed = lines[i].TrimStart();
+            if (trimmed.StartsWith("```"))
+            {
+                if (!inCode)
+                {
+                    string lang = trimmed.Length > 3 ? trimmed.Substring(3).Trim() : "";
+                    string badge = string.IsNullOrWhiteSpace(lang) ? "CODE" : lang.ToUpperInvariant();
+                    lines[i] = $"\n[grey]┌─── [/][bold gold1]{badge}[/][grey] ───────────────────────────────────────────[/]\n[bold turquoise2]";
+                    inCode = true;
+                }
+                else
+                {
+                    lines[i] = "[/]\n[grey]└────────────────────────────────────────────────────────┘[/]\n";
+                    inCode = false;
+                }
+            }
+        }
+
+        string result = string.Join("\n", lines) + (inCode ? "[/]" : "");
+        return result;
+    }
 
     public static async Task StartInteractiveLoopAsync()
     {
+        AnsiConsole.Clear();
+
+        var grid = new Grid();
+        grid.AddColumn(new GridColumn().NoWrap().PadRight(4));
+        grid.AddColumn(new GridColumn().NoWrap().PadRight(4));
+        grid.AddColumn(new GridColumn().NoWrap().PadRight(4));
+        grid.AddColumn(new GridColumn().NoWrap());
+        
+        grid.AddRow("[bold cyan]ENGINE[/]", "[bold cyan]SUPER-AI ARCHITECTURE[/]", "[bold cyan]SWARM HIVE-MIND[/]", "[bold cyan]LATENCY[/]");
+        grid.AddRow(
+            "[white]OpureRuntime (NativeAOT)[/]", 
+            "[yellow]Qwen3-30B MoE (128 Experts)[/]", 
+            "[green]Fused (Router, Jev, Critic, Tool-Forger)[/]", 
+            "[white]< 1ms DMA[/]"
+        );
+
+        var headerPanel = new Panel(grid)
+            .Border(BoxBorder.Rounded)
+            .Header(new PanelHeader("[bold white] FRACTAL-BLT APOLLO CHAT & SWARM HIVE-MIND v2.5 [/]", Justify.Center))
+            .BorderColor(Color.Cyan1)
+            .Expand();
+            
+        AnsiConsole.Write(headerPanel);
+        AnsiConsole.WriteLine();
+
         while (true)
         {
-            AnsiConsole.Clear();
-            RenderHeader();
+            var prompt = AnsiConsole.Prompt(
+                new TextPrompt<string>("[bold springgreen2]>[/] ")
+                    .PromptStyle("white")
+            );
 
-            _cts = new CancellationTokenSource();
-            Task renderTask = CurrentMode switch
+            if (string.IsNullOrWhiteSpace(prompt)) continue;
+            if (prompt.Trim().ToLower() == "/exit" || prompt.Trim().ToLower() == "/quit") break;
+            if (prompt.Trim().ToLower() == "/clear")
             {
-                UIMode.HiveMindSwarm => SwarmDashboard.RenderLiveMatrixAsync(_cts.Token),
-                UIMode.NativeJITForge => RenderJITForgeAsync(_cts.Token),
-                _ => RenderStandardChatAsync(_cts.Token)
+                AnsiConsole.Clear();
+                _messages.Clear();
+                AnsiConsole.Write(headerPanel);
+                continue;
+            }
+
+            _messages.Add(new ChatMessage { role = "user", content = prompt });
+
+            var getAssistantPanel = (string content, string metrics) => 
+            {
+                var p = new Panel(new Markup(content))
+                    .Header(string.IsNullOrEmpty(metrics) 
+                        ? "[bold mediumpurple2] FRACTAL SWARM [/]" 
+                        : $"[bold mediumpurple2] FRACTAL SWARM [/] [grey]({metrics})[/]")
+                    .BorderColor(Color.MediumPurple2)
+                    .Padding(2, 1, 2, 1)
+                    .RoundedBorder();
+                return p;
             };
 
-            // We don't await the render task, we let it run in background and manage input here
-            var _ = renderTask;
-            
-            string currentInput = "";
-            while (!_cts.Token.IsCancellationRequested)
-            {
-                if (Console.KeyAvailable)
+            await AnsiConsole.Live(getAssistantPanel("[grey]Fusing Tensors & Routing Swarm...[/]", ""))
+                .StartAsync(async ctx =>
                 {
-                    var keyInfo = Console.ReadKey(intercept: true);
-                    var key = keyInfo.Key;
-                    
-                    if (key == ConsoleKey.F1)
+                    string fullResponse = "";
+                    var sw = Stopwatch.StartNew();
+                    int tokenCount = 0;
+                    bool firstToken = false;
+                    long ttft = 0;
+
+                    try
                     {
-                        SwitchMode(UIMode.StandardRAG);
-                    }
-                    else if (key == ConsoleKey.F2)
-                    {
-                        SwitchMode(UIMode.NativeJITForge);
-                    }
-                    else if (key == ConsoleKey.F3)
-                    {
-                        SwitchMode(UIMode.HiveMindSwarm);
-                    }
-                    else if (key == ConsoleKey.Escape)
-                    {
-                        Environment.Exit(0);
-                    }
-                    else if (CurrentMode == UIMode.StandardRAG)
-                    {
-                        if (key == ConsoleKey.Enter)
+                        using var client = new HttpClient();
+                        client.Timeout = TimeSpan.FromMinutes(10);
+                        
+                        var requestBody = new 
+                        { 
+                            model = "opure-runtime", 
+                            messages = _messages.ToArray(),
+                            stream = true 
+                        };
+                        
+                        var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+                        var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5000/v1/chat/completions") { Content = content };
+
+                        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                        response.EnsureSuccessStatusCode();
+
+                        using var stream = await response.Content.ReadAsStreamAsync();
+                        using var reader = new System.IO.StreamReader(stream);
+
+                        while (true)
                         {
-                            Console.WriteLine();
-                            if (!string.IsNullOrWhiteSpace(currentInput))
+                            var line = await reader.ReadLineAsync();
+                            if (line == null) break;
+                            if (string.IsNullOrWhiteSpace(line)) continue;
+                            
+                            if (line.StartsWith("data: "))
                             {
-                                string prompt = currentInput;
-                                AnsiConsole.MarkupLine($"[grey]Ingested >> {prompt}[/]");
-                                currentInput = "";
+                                string data = line.Substring(6);
+                                if (data == "[DONE]") break;
                                 
-                                // Fire and forget the response simulation
-                                _ = Task.Run(async () => {
-                                    await StreamRealHiveMindResponseAsync(prompt);
-                                    AnsiConsole.Markup("\n[green]You:[/] ");
-                                });
+                                try 
+                                {
+                                    using var doc = JsonDocument.Parse(data);
+                                    var delta = doc.RootElement.GetProperty("choices")[0].GetProperty("delta");
+                                    if (delta.TryGetProperty("content", out var contentProp))
+                                    {
+                                        if (!firstToken) { ttft = sw.ElapsedMilliseconds; firstToken = true; }
+                                        fullResponse += contentProp.GetString();
+                                        tokenCount++;
+                                        
+                                        string metrics = $"TTFT: {ttft}ms";
+                                        ctx.UpdateTarget(getAssistantPanel($"[white]{FormatMarkdown(fullResponse)}[/]", metrics));
+                                        ctx.Refresh();
+                                    }
+                                }
+                                catch { }
                             }
-                            else 
-                            {
-                                AnsiConsole.Markup("\n[green]You:[/] ");
-                            }
-                        }
-                        else if (key == ConsoleKey.Backspace && currentInput.Length > 0)
-                        {
-                            currentInput = currentInput.Substring(0, currentInput.Length - 1);
-                            Console.Write("\b \b");
-                        }
-                        else if (!char.IsControl(keyInfo.KeyChar))
-                        {
-                            currentInput += keyInfo.KeyChar;
-                            Console.Write(keyInfo.KeyChar);
                         }
                     }
-                }
-                await Task.Delay(20);
-            }
-
-            try { await renderTask; } catch (TaskCanceledException) { }
-        }
-    }
-
-    private static void SwitchMode(UIMode newMode)
-    {
-        if (CurrentMode == newMode) return;
-        CurrentMode = newMode;
-        _cts.Cancel();
-    }
-
-    private static void RenderHeader()
-    {
-        AnsiConsole.MarkupLine("[grey]Fractal-BLT Interactive TUI // Press F1: Standard Chat | F2: JIT Forge | F3: Hive-Mind | ESC: Exit[/]");
-        AnsiConsole.Write(new Rule().RuleStyle("grey"));
-    }
-
-    private static async Task RenderStandardChatAsync(CancellationToken token)
-    {
-        AnsiConsole.MarkupLine("[bold aqua]Standard RAG Chat[/]");
-        AnsiConsole.MarkupLine("[grey]Type your prompt below. Connecting to SwarmBus...[/]");
-        AnsiConsole.Markup("[green]You:[/] ");
-        
-        try 
-        {
-            while (!token.IsCancellationRequested)
-            {
-                await Task.Delay(100, token);
-            }
-        }
-        catch (TaskCanceledException) {}
-    }
-
-    private static async Task RenderJITForgeAsync(CancellationToken token)
-    {
-        AnsiConsole.MarkupLine("[bold yellow]Native JIT Forge Monitor[/]");
-        AnsiConsole.MarkupLine("[grey]Monitoring tool compilation on unmanaged streams...[/]");
-
-        int tick = 0;
-        try
-        {
-            while (!token.IsCancellationRequested)
-            {
-                if (tick % 10 == 0)
-                {
-                    AnsiConsole.MarkupLine($"[[{DateTime.Now:HH:mm:ss}]] [green]Forge Standby...[/]");
-                }
-                await Task.Delay(100, token);
-                tick++;
-            }
-        }
-        catch (TaskCanceledException) {}
-    }
-
-    private static async Task StreamRealHiveMindResponseAsync(string prompt)
-    {
-        AnsiConsole.Markup("[bold magenta]Hive-Mind:[/] ");
-        try
-        {
-            using var client = new HttpClient();
-            client.Timeout = TimeSpan.FromMinutes(5);
-            var requestBody = new 
-            { 
-                model = "qwen3_30b_a3b", 
-                messages = new[] { new { role = "user", content = prompt } },
-                stream = true 
-            };
-            
-            var content = new StringContent(System.Text.Json.JsonSerializer.Serialize(requestBody), System.Text.Encoding.UTF8, "application/json");
-            
-            var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5000/v1/chat/completions");
-            request.Content = content;
-
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-
-            using var stream = await response.Content.ReadAsStreamAsync();
-            using var reader = new System.IO.StreamReader(stream);
-
-            while (!reader.EndOfStream)
-            {
-                var line = await reader.ReadLineAsync();
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                
-                if (line.StartsWith("data: "))
-                {
-                    string data = line.Substring(6);
-                    if (data == "[DONE]") break;
-                    
-                    try 
+                    catch (Exception ex)
                     {
-                        using var doc = System.Text.Json.JsonDocument.Parse(data);
-                        var delta = doc.RootElement.GetProperty("choices")[0].GetProperty("delta");
-                        if (delta.TryGetProperty("content", out var contentProp))
-                        {
-                            Console.Write(contentProp.GetString());
-                        }
+                        fullResponse += $"\n\n[red]Error: {Markup.Escape(ex.Message)}[/]";
+                        ctx.UpdateTarget(getAssistantPanel(fullResponse, "ERROR"));
+                        ctx.Refresh();
                     }
-                    catch { /* ignore parse errors for raw stream drops */ }
-                }
-            }
-            Console.WriteLine();
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[red]Connection Error: Is FractalServe running on localhost:5000? ({ex.Message})[/]");
+
+                    sw.Stop();
+                    double tps = tokenCount > 0 ? (tokenCount / sw.Elapsed.TotalSeconds) : 0;
+                    string finalMetrics = $"TTFT: {ttft}ms | Speed: {tps:F1} tok/s | Tokens: {tokenCount}";
+                    
+                    ctx.UpdateTarget(getAssistantPanel($"[white]{FormatMarkdown(fullResponse)}[/]", finalMetrics));
+                    
+                    _messages.Add(new ChatMessage { role = "assistant", content = fullResponse });
+                });
+                
+            AnsiConsole.WriteLine();
         }
     }
 }

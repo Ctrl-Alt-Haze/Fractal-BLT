@@ -16,5 +16,6 @@
     <ProjectReference Include="..\FractalBridge\FractalBridge.csproj" />
     <ProjectReference Include="..\FractalStreamer\FractalStreamer.csproj" />
     <ProjectReference Include="..\FractalBLT.Core\FractalBLT.Core.csproj" />
+    <ProjectReference Include="..\..\OpureRuntime\CoreLoop\CoreLoop.csproj" />
   </ItemGroup>
 </Project>
